@@ -1,0 +1,17 @@
+{
+  "name": "applicationjuridico-realtime",
+  "version": "1.0.0",
+  "description": "Servidor WebSocket (Socket.IO) para notificaciones y actualizaciones en tiempo real",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}

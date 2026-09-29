@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Cliente WebSocket - ApplicationJuridico</title>
+</head>
+<body>
+  <h3>Notificaciones en tiempo real</h3>
+  <ul id="log"></ul>
+
+  <!--
+    1) Carga el cliente de Socket.IO.
+       Puede ser desde el CDN (como aqui) o desde tu propio servidor node:
+       https://TU-DOMINIO.com/socket.io/socket.io.js
+  -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+  <script>
+    // 2) Conecta al servidor node.
+    //    En produccion (cPanel) usa tu dominio con HTTPS.
+    const socket = io("https://TU-DOMINIO.com", {
+      path: "/socket.io",
+      transports: ["websocket", "polling"], // intenta WS, cae a polling
+    });
+
+    function log(texto) {
+      const li = document.createElement("li");
+      li.textContent = texto;
+      document.getElementById("log").appendChild(li);
+    }
+
+    // 3) Al conectar, SUSCRIBETE a los canales que te interesan.
+    //    Un canal puede ser por usuario ("usuario-45"), por expediente
+    //    ("expediente-123"), o uno global ("notificaciones").
+    socket.on("connect", () => {
+      log("Conectado: " + socket.id);
+
+      socket.emit("subscribe", ["usuario-45", "expediente-123"], (resp) => {
+        log("Suscrito a: " + JSON.stringify(resp.channels));
+      });
+    });
+
+    // 4) Escucha los eventos que tu PHP enviara.
+    //    El nombre del evento ("nueva_notificacion") lo decides tu;
+    //    debe coincidir con el "event" que mandes desde PHP.
+    socket.on("nueva_notificacion", (data) => {
+      log("NOTIFICACION: " + JSON.stringify(data));
+    });
+
+    socket.on("actualizacion_data", (data) => {
+      log("DATA ACTUALIZADA: " + JSON.stringify(data));
+    });
+
+    socket.on("disconnect", () => log("Desconectado"));
+  </script>
+</body>
+</html>
