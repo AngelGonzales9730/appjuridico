@@ -59,8 +59,10 @@
                 $stmt->bindValue(":_resuelve"                       ,($params["resolvio"] == "false" ? 0 : 1)   ,PDO::PARAM_INT);
                 $stmt->bindValue(":_fech_dos"                       ,$params["fechaDos"]                        ,PDO::PARAM_STR);
                 $stmt->bindValue(":_desc_resumen"                   ,$params["resumen"]                         ,PDO::PARAM_STR);
-                $stmt->bindValue(":_escrito_file"                   ,$params["escritoFileName"]                 ,PDO::PARAM_STR);
-                $stmt->bindValue(":_fiscalia_file"                  ,$params["fiscaliaFileName"]                ,PDO::PARAM_STR);
+                // Sin archivo se guarda NULL (no ''), así los contadores de la grilla
+                // (escrito_file IS NOT NULL) no lo cuentan como cargado.
+                $stmt->bindValue(":_escrito_file"                   ,$params["escritoFileName"]  !== "" ? $params["escritoFileName"]  : null ,$params["escritoFileName"]  !== "" ? PDO::PARAM_STR : PDO::PARAM_NULL);
+                $stmt->bindValue(":_fiscalia_file"                  ,$params["fiscaliaFileName"] !== "" ? $params["fiscaliaFileName"] : null ,$params["fiscaliaFileName"] !== "" ? PDO::PARAM_STR : PDO::PARAM_NULL);
                 $stmt->bindValue(":_desc_usuario_crea"              ,1                                          ,PDO::PARAM_INT);
                 $stmt->bindValue(":_orden"                          ,$params["numero"]                          ,PDO::PARAM_INT);
                 
