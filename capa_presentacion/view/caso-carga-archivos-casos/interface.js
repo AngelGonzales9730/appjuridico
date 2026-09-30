@@ -599,6 +599,7 @@ function loadFile(ide){
                                                                         <i class="ki-duotone ki-file-up fs-2x text-primary"><span class="path1"></span><span class="path2"></span></i>
                                                                         <div class="ms-4">
                                                                             <h6 class="fs-7 fw-bold text-gray-900 mb-1">Cargar o arrastrar archivos</h6>
+                                                                            <span class="fs-8 text-muted">PDF opcional, puede cargarlo después</span>
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -613,6 +614,7 @@ function loadFile(ide){
                                                                         <i class="ki-duotone ki-file-up fs-2x text-primary"><span class="path1"></span><span class="path2"></span></i>
                                                                         <div class="ms-4">
                                                                             <h6 class="fs-7 fw-bold text-gray-900 mb-1">Cargar o arrastrar archivos</h6>
+                                                                            <span class="fs-8 text-muted">PDF opcional, puede cargarlo después</span>
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -786,22 +788,28 @@ $("#btnSaveFile").on("click",()=>{
     let success     = 0, failed = 0;
     var promesas    = [];
 
-    // Pre-validación: todos los formularios deben tener ambos archivos cargados
-    var faltanArchivos = false;
+    // Pre-validación de campos obligatorios (Petitorio y Fecha) en cada registro.
+    // Los archivos de Escritos y Fiscalía son opcionales: pueden cargarse
+    // luego desde la edición del registro.
+    var campoFaltante = null;
+    formsFiles.find(".is-invalid").removeClass("is-invalid");
     formsFiles.each(function(index){
-        var archivoEscrito  = filesArray[index * 2].getAcceptedFiles()[0];
-        var archivoFiscalia = filesArray[index * 2 + 1].getAcceptedFiles()[0];
-        if(!archivoEscrito || !archivoFiscalia){
-            faltanArchivos = true;
-            return false; // detiene el recorrido
+        var seccion = $(this).closest(".row").find("h2").first().text().trim();
+        var obligatorios = [
+            { id: `#txtPet${index+1}`,   nombre: "Petitorio" },
+            { id: `#txtFecha${index+1}`, nombre: "Fecha" }
+        ];
+        for(var campo of obligatorios){
+            if($(campo.id).val().trim() === ""){
+                campoFaltante = { id: campo.id, mensaje: `El campo ${campo.nombre} es obligatorio en "${seccion}".` };
+                return false; // detiene el recorrido
+            }
         }
     });
 
-    if(faltanArchivos){
-        swal({
-            type    : "error",
-            message : "Debe cargar el archivo de Escritos y el de Fiscalía en cada registro antes de grabar."
-        });
+    if(campoFaltante){
+        $(campoFaltante.id).addClass("is-invalid").trigger("focus");
+        swal({ type: "error", message: campoFaltante.mensaje });
         return false;
     }
 
@@ -814,9 +822,11 @@ $("#btnSaveFile").on("click",()=>{
         formData.append("resolvio"          ,$(`#txtCheck${index+1}`).is(":checked"));
         formData.append("fechaDos"          ,$(`#txtFechaD${index+1}`).val());
         formData.append("resumen"           ,$(`#txtResumen${index+1}`).val());
-        formData.append("escritos"          ,filesArray[contar].getAcceptedFiles()[0]);
+        var archivoEscrito  = filesArray[contar].getAcceptedFiles()[0];
+        if(archivoEscrito)  formData.append("escritos", archivoEscrito);
         contar   += 1;
-        formData.append("fiscalia"          ,filesArray[contar].getAcceptedFiles()[0]);
+        var archivoFiscalia = filesArray[contar].getAcceptedFiles()[0];
+        if(archivoFiscalia) formData.append("fiscalia", archivoFiscalia);
         formData.append("metodoFormData"    ,"insertDetailFilesCasos");
 
         promesas.push(
@@ -867,6 +877,11 @@ $("#btnSaveFile").on("click",()=>{
             swal(response);
         });
 })
+
+// Quita el resaltado de error en cuanto el usuario completa el campo
+$(document).on("input change", 'input[id^="txtPet"], input[id^="txtFecha"]', function(){
+    $(this).removeClass("is-invalid");
+});
 
 function upFile(formData){
     return new Promise((resolve,reject)=>{
