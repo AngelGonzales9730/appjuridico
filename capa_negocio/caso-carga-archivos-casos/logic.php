@@ -33,13 +33,12 @@
                             die($object);
                             break;
         case "insertDetailFilesCasos":
-                            // Validar que ambos archivos hayan sido cargados correctamente
-                            if(!esArchivoValido($params['escritos']) || !esArchivoValido($params['fiscalia'])){
-                                die(json_encode([
-                                    "status"  => 0,
-                                    "type"    => "error",
-                                    "message" => "Debe cargar el archivo de Escritos y el de Fiscalía antes de grabar."
-                                ]));
+                            // Campos obligatorios (los archivos no lo son)
+                            if(trim($params["petitorio"]) === ""){
+                                die(json_encode(["status" => 0, "type" => "error", "message" => "El petitorio es obligatorio."]));
+                            }
+                            if(trim($params["fechaUno"]) === ""){
+                                die(json_encode(["status" => 0, "type" => "error", "message" => "La fecha es obligatoria."]));
                             }
 
                             // Directorio de carga
@@ -48,37 +47,42 @@
                                 mkdir($upload_dir, 0777, true);
                             }
 
+                            // Los archivos son opcionales: el registro puede grabarse sin
+                            // Escrito y/o Fiscalía y cargarlos luego desde la edición.
+                            $params["escritoFileName"]  = "";
+                            $params["fiscaliaFileName"] = "";
+                            $guardados = [];
 
-                            $tmp_name    = $params['escritos']['tmp_name'];
-                            $newFileName = generarNombreArchivo($params['escritos']['name'],("escrito".$params["numero"]));
-
-                            $upload_file = $upload_dir .$params["codcaso"]. "_" .$newFileName;
-                            $validar = 0;
-                            if (move_uploaded_file($tmp_name, $upload_file)) {
+                            if(esArchivoValido($params['escritos'])){
+                                $newFileName = generarNombreArchivo($params['escritos']['name'],("escrito".$params["numero"]),$params["codcaso"]. "_");
+                                $upload_file = $upload_dir .$params["codcaso"]. "_" .$newFileName;
+                                if (!move_uploaded_file($params['escritos']['tmp_name'], $upload_file)) {
+                                    die(json_encode([
+                                        "status"  => 0,
+                                        "type"    => "error",
+                                        "message" => "No se pudo guardar el archivo de Escritos. Intente nuevamente."
+                                    ]));
+                                }
                                 $params["escritoFileName"] = $params["codcaso"]. "_" .$newFileName;
-                                $validar++;
+                                $guardados[] = $upload_file;
                             }
 
-
-                            $tmp_name    = $params['fiscalia']['tmp_name'];
-                            $newFileName = generarNombreArchivo($params['fiscalia']['name'],("fiscalia".$params["numero"]));
-
-                            $upload_file = $upload_dir .$params["codcaso"]. "_" .$newFileName;
-                            if (move_uploaded_file($tmp_name, $upload_file)) {
+                            if(esArchivoValido($params['fiscalia'])){
+                                $newFileName = generarNombreArchivo($params['fiscalia']['name'],("fiscalia".$params["numero"]),$params["codcaso"]. "_");
+                                $upload_file = $upload_dir .$params["codcaso"]. "_" .$newFileName;
+                                if (!move_uploaded_file($params['fiscalia']['tmp_name'], $upload_file)) {
+                                    // No dejar huérfano el Escrito ya movido
+                                    foreach ($guardados as $ruta) { @unlink($ruta); }
+                                    die(json_encode([
+                                        "status"  => 0,
+                                        "type"    => "error",
+                                        "message" => "No se pudo guardar el archivo de Fiscalía. Intente nuevamente."
+                                    ]));
+                                }
                                 $params["fiscaliaFileName"] = $params["codcaso"]. "_" .$newFileName;
-                                $validar++;
                             }
 
-                            if($validar == 2){
-                                $object->insertCasoFile($params);
-                                die($object);
-                            }
-
-                            die(json_encode([
-                                "status"  => 0,
-                                "type"    => "error",
-                                "message" => "No se pudieron guardar los archivos. Intente nuevamente."
-                            ]));
+                            $object->insertCasoFile($params);
                             break;
         case "listarRegistrosCaso":
                             die($object->listarRegistrosCaso($params));
@@ -102,6 +106,10 @@
                             die($respuesta);
                             break;
         case "updateDetailFilesCasos":
+                            if(trim($params["petitorio"]) === ""){
+                                die(json_encode(["status" => 0, "type" => "error", "message" => "El petitorio es obligatorio."]));
+                            }
+
                             // Directorio de carga
                             $upload_dir  = '../../uploads/';
                             if(!is_dir($upload_dir)){
@@ -114,7 +122,7 @@
                             $params["fiscaliaFileName"] = "";
 
                             if(esArchivoValido($params['escritos'])){
-                                $newFileName = generarNombreArchivo($params['escritos']['name'],("escrito".$params["numero"]));
+                                $newFileName = generarNombreArchivo($params['escritos']['name'],("escrito".$params["numero"]),$params["codcaso"]. "_");
                                 $upload_file = $upload_dir .$params["codcaso"]. "_" .$newFileName;
                                 if (move_uploaded_file($params['escritos']['tmp_name'], $upload_file)) {
                                     $params["escritoFileName"] = $params["codcaso"]. "_" .$newFileName;
@@ -122,7 +130,7 @@
                             }
 
                             if(esArchivoValido($params['fiscalia'])){
-                                $newFileName = generarNombreArchivo($params['fiscalia']['name'],("fiscalia".$params["numero"]));
+                                $newFileName = generarNombreArchivo($params['fiscalia']['name'],("fiscalia".$params["numero"]),$params["codcaso"]. "_");
                                 $upload_file = $upload_dir .$params["codcaso"]. "_" .$newFileName;
                                 if (move_uploaded_file($params['fiscalia']['tmp_name'], $upload_file)) {
                                     $params["fiscaliaFileName"] = $params["codcaso"]. "_" .$newFileName;
@@ -156,11 +164,16 @@
             && is_uploaded_file($file['tmp_name']);
     }
 
-    // Función para generar un nombre de archivo único
-    function generarNombreArchivo($originalName,$type) {
-        $timestamp = date('Ymd_His');
-        $uniqueId = uniqid();
+    // Función para generar un nombre de archivo único.
+    // Una sección puede tener varias filas que se suben en paralelo en el mismo
+    // segundo: se agrega un sufijo aleatorio y se verifica que no exista en uploads/.
+    function generarNombreArchivo($originalName,$type,$prefijo = "") {
         $extension = pathinfo($originalName, PATHINFO_EXTENSION);
-        return $type. "_" .$timestamp . '_' . $uniqueId . '.' . $extension;
+        do {
+            $timestamp = date('Ymd_His');
+            $uniqueId = uniqid() . bin2hex(random_bytes(4));
+            $nombre = $type. "_" .$timestamp . '_' . $uniqueId . '.' . $extension;
+        } while (is_file('../../uploads/' . $prefijo . $nombre));
+        return $nombre;
     }
 ?>

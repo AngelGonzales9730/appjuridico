@@ -55,12 +55,31 @@
 
 
 
+<!--ANIMACIÓN DE FILA AGREGADA EN EL MODAL DE CARGA-->
+<style>
+    @keyframes filaSale {
+        to { opacity: 0; transform: translateY(-4px); }
+    }
+    /* Entrada: la misma animación de salida, en reversa */
+    #tbBodyArchivos tr.fila-nueva-anim {
+        animation: filaSale .22s ease-in reverse both;
+    }
+    #tbBodyArchivos tr.fila-sale-anim {
+        animation: filaSale .22s ease-in forwards;
+        pointer-events: none;
+    }
+    @media (prefers-reduced-motion: reduce) {
+        #tbBodyArchivos tr.fila-nueva-anim,
+        #tbBodyArchivos tr.fila-sale-anim { animation: none; }
+    }
+</style>
+
 <!--MODAL INSERTAR FILES CASOS-->
 <div class="modal fade" tabindex="-1" id="modalArchivo">
     <div class="modal-dialog modal-dialog-scrollable modal-fullscreen">
         <div class="modal-content ">
             <div class="modal-header">
-                <h5 class="modal-title">Mantenimiento de casos - carga</h5>
+                <h5 class="modal-title">Gestión de archivos del caso</h5>
                 <div class="btn btn-icon btn-sm btn-active-light-primary ms-2" data-bs-dismiss="modal" aria-label="Close">
                     <i class="ki-duotone ki-cross fs-2x"><span class="path1"></span><span class="path2"></span></i>
                 </div>
@@ -90,29 +109,6 @@
                 </div>
             </div>
             <div class="modal-body" id="bodyVisualizar">
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cerrar</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!--MODAL EDITAR / GESTIONAR ARCHIVOS-->
-<div class="modal fade" tabindex="-1" id="modalEditar">
-    <div class="modal-dialog modal-dialog-scrollable modal-fullscreen">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">
-                    <i class="ki-duotone ki-pencil fs-2 me-2"><span class="path1"></span><span class="path2"></span></i>
-                    Gestión de archivos cargados
-                </h5>
-                <div class="btn btn-icon btn-sm btn-active-light-primary ms-2" data-bs-dismiss="modal" aria-label="Close">
-                    <i class="ki-duotone ki-cross fs-2x"><span class="path1"></span><span class="path2"></span></i>
-                </div>
-            </div>
-            <input type="hidden" id="codCasoEdit"/>
-            <div class="modal-body" id="bodyEditar">
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cerrar</button>
