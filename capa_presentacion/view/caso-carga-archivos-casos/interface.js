@@ -9,8 +9,6 @@ var div_caso_dos_upd  = ["divEJudicialUpdate","divMCautelarUpdate"];
 var div_caso_tres_upd = ["divEJudicialUpdate"];
 var div_total_upd     = ["divEJudicialUpdate","divCFiscalUpdate","divIncidenteUpdate","divMCautelarUpdate"];
 
-var filesArray = [];
-
 $("document").ready(function(){
     $("#cmbMateria").select2({
             dropdownParent: $('#modalCaso')
@@ -198,27 +196,23 @@ var KTDatatablesServerSide = function () {
                     render: function (data, type, row) {
                         var reg  = parseInt(row.total_registros, 10) || 0;
                         var carg = parseInt(row.archivos_cargados, 10) || 0;
-                        var esp  = parseInt(row.archivos_esperados, 10) || 0;
-                        var arch = parseInt(row.tiene_archivos, 10) || 0;
 
                         if(reg === 0){
                             return `<span class="badge badge-light-secondary">Pendiente</span>`;
                         }
-                        // Progreso X/Y con barra animada
-                        if(esp > 0){
-                            var pct   = Math.min(100, Math.round((carg * 100) / esp));
-                            var color = (carg >= esp) ? "success" : (carg > 0 ? "primary" : "warning");
-                            return `
-                                <div class="d-flex flex-column align-items-center">
-                                    <span class="fw-bold fs-7 text-${color} mb-1">${carg}/${esp}</span>
-                                    <div class="progress h-6px w-90px">
-                                        <div class="progress-bar bg-${color}" role="progressbar" data-width="${pct}" style="width:0%; transition:width .9s ease;"></div>
-                                    </div>
-                                </div>`;
-                        }
-                        // Sin "esperados" definidos para la materia: estado simple
-                        if(arch > 0) return `<span class="badge badge-light-success">Cargados</span>`;
-                        return `<span class="badge badge-light-warning">Sin archivos</span>`;
+                        // Cada sección admite filas ilimitadas: se espera un Escrito y una
+                        // Fiscalía por fila registrada (filas x 2), no por sección.
+                        var esp   = reg * 2;
+                        var pct   = Math.min(100, Math.round((carg * 100) / esp));
+                        var color = (carg >= esp) ? "success" : (carg > 0 ? "primary" : "warning");
+                        return `
+                            <div class="d-flex flex-column align-items-center" title="PDFs cargados / PDFs posibles (${reg} ${reg === 1 ? "fila" : "filas"} x 2)">
+                                <span class="fw-bold fs-7 text-${color} mb-1">${carg}/${esp}</span>
+                                <div class="progress h-6px w-90px">
+                                    <div class="progress-bar bg-${color}" role="progressbar" data-width="${pct}" style="width:0%; transition:width .9s ease;"></div>
+                                </div>
+                                <span class="fs-8 text-muted mt-1">${reg} ${reg === 1 ? "fila" : "filas"}</span>
+                            </div>`;
                     }
                 },
                 {
@@ -227,20 +221,12 @@ var KTDatatablesServerSide = function () {
                     className: 'text-end',
                     render: function (data) {
                         var id = data.id_caso;
-                        var yaRegistrado = parseInt(data.total_registros, 10) > 0;
-                        // Si el caso ya tiene registros de carga, "Cargar archivos" se deshabilita: se gestionan por "Editar"
-                        var btnCargar = yaRegistrado
-                            ? `<button type="button" class="btn btn-icon btn-sm btn-light-primary" disabled data-bs-toggle="tooltip" title="Este caso ya fue registrado. Use 'Editar archivos' para gestionar sus archivos.">
-                                    <i class="ki-duotone ki-file-up fs-4"><span class="path1"></span><span class="path2"></span></i>
-                               </button>`
-                            : `<button type="button" class="btn btn-icon btn-sm btn-light-primary" data-bs-toggle="tooltip" title="Cargar archivos" onclick="loadFile(${id})">
-                                    <i class="ki-duotone ki-file-up fs-4"><span class="path1"></span><span class="path2"></span></i>
-                               </button>`;
+                        // "Gestionar archivos": el modal muestra las filas ya registradas para
+                        // editarlas o eliminarlas y permite agregar nuevas.
                         return `
                             <div class="d-flex justify-content-end gap-1">
-                                ${btnCargar}
-                                <button type="button" class="btn btn-icon btn-sm btn-light-warning" data-bs-toggle="tooltip" title="Editar archivos" onclick="editFiles(${id})">
-                                    <i class="ki-duotone ki-pencil fs-4"><span class="path1"></span><span class="path2"></span></i>
+                                <button type="button" class="btn btn-icon btn-sm btn-light-primary" data-bs-toggle="tooltip" title="Gestionar archivos" onclick="loadFile(${id})">
+                                    <i class="ki-duotone ki-file-up fs-4"><span class="path1"></span><span class="path2"></span></i>
                                 </button>
                                 <button type="button" class="btn btn-icon btn-sm btn-light-info" data-bs-toggle="tooltip" title="Visualizar PDFs" onclick="viewFiles(${id})">
                                     <i class="ki-duotone ki-eye fs-4"><span class="path1"></span><span class="path2"></span><span class="path3"></span></i>
@@ -520,232 +506,358 @@ function reloadDataTable(){
     KTDatatablesServerSide.init();
 }
 
+// ============================================================
+//  MODAL DE CARGA: SECCIONES CON FILAS DINÁMICAS
+//  Cada sección (Expediente Judicial, Carpeta Fiscal, etc.) admite
+//  varias filas. orden_registro = posición de la sección en name_files.
+// ============================================================
+
+var filaSeq = 0; // contador para ids únicos de las filas del modal de carga
+
+// Solicita al backend las secciones (name_files) según la materia del caso
+function obtenerSeccionesCaso(ide){
+    return new Promise((resolve,reject)=>{
+        $.ajax({
+            type:"GET",
+            url:`${$("#urlRequestFiles").val()}`,
+            data:{ "params":ide, "method":"getDataCaso" },
+            beforeSend:()=>{ loading(); },
+            success:(response)=>{
+                hideLoading();
+                try { resolve(JSON.parse(response)); }
+                catch(e){ reject(e); }
+            },
+            error:(xhr,status,error)=>{ hideLoading(); reject(error); }
+        });
+    });
+}
+
 function loadFile(ide){
-    $.ajax({
-        type:"GET",
-        url:`${$("#urlRequestFiles").val()}`,
-        data:{
-            "params":ide,
-            "method":"getDataCaso"
-        },
-        beforeSend:()=>{
-            loading();
-        },success:(response)=>{
-            hideLoading();
-            response = JSON.parse(response);
-            if(response.status == 0){
-                // Limpiar dropzones de aperturas anteriores para evitar desalineación de filesArray
-                filesArray.forEach(dz => {
-                    try { dz.destroy(); } catch(e) {}
-                });
-                filesArray = [];
-                $("#tbBodyArchivos").html("");
+    var secciones = null;
+    obtenerSeccionesCaso(ide).then(response=>{
+        if(response.status != 0 || !response.data || response.data.length === 0){
+            return Promise.reject(response.message || "No se encontraron secciones para la materia del caso.");
+        }
+        secciones = response.data[0];
+        return obtenerRegistrosCaso(ide);
+    }).then(response=>{
+        if(response.status != 0){
+            return Promise.reject(response.message || "No se pudo cargar la información.");
+        }
+        renderCarga(secciones, response.data || []);
+        $("#modalArchivo").modal("show");
+    }).catch(error=>{
+        swal({ type:"error", message: (typeof error === "string" && error) ? error : "Ocurrió un error al cargar el caso." });
+    });
+}
 
-                var cantDivFiles = response.data[0].name_files.split(",");
-                var divHtml  = "";
-                var contador = 1;
-                $("#codCaso").val(response.data[0].id_caso);
-                cantDivFiles.forEach(element => {
-                    divHtml += 
-                    `
-                        <div class='row m-0 p-0'>
-                            <div class='col-md-12'>
-                                <h2>${element}</h2>
-                            </div>
-                            <div class='col-md-12'>
-                                <div class='table-responsive'>
-                                    <form name="formFiles${contador}" id="formFiles${contador}">
-                                        <table class='table table-md table-hover table-bordered'>
-                                            <thead>
-                                                <tr>
-                                                    <th>
-                                                        <div class="fv-row mb-10">
-                                                            <label class="required">PETITORIO</label>
-                                                        </div>
-                                                    </th>
-                                                    <th>
-                                                        <div class="fv-row mb-10">
-                                                            <label class="required">FECHA</label>
-                                                        </div>
-                                                    </th>
-                                                    <th>FISCALÍA</th>
-                                                    <th>FECHA</th>
-                                                    <th>RESUMEN</th>
-                                                    <th>ESCRITOS</th>
-                                                    <th>FISCALÍA</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr>
-                                                    <td><input type="text" class="form-control form-control-sm" name="txtPet${contador}" id="txtPet${contador}" autocomplete="off" /></td>
-                                                    <td><input type="date" class="form-control form-control-sm" name="txtFecha${contador}" id="txtFecha${contador}" autocomplete="off" /></td>
-                                                    <td>
-                                                        <div class="form-check form-check-success form-check-solid form-check-sm">
-                                                            <input type="checkbox" class="form-check-input" style="cursor:pointer;" name="txtCheck${contador}" id="txtCheck${contador}" />
-                                                            <label class="form-check-label" for="txtCheck${contador}" style="cursor:pointer;">
-                                                                Resolvió
-                                                            </label>
-                                                        </div>
-                                                    </td>
-                                                    <td><input type="date" class="form-control form-control-sm" name="txtFechaD${contador}" id="txtFechaD${contador}" autocomplete="off" /></td>
-                                                    <td>
-                                                        <textarea class="form-control form-control-sm" name="txtResumen${contador}" id="txtResumen${contador}" rows="4" cols="50"></textarea>
-                                                    </td>
-                                                    <td>
-                                                        <form class="form" action="#" method="post">
-                                                            <div class="fv-row">
-                                                                <div class="dropzone" id="fileEscrito${contador}">
-                                                                    <div class="dz-message needsclick">
-                                                                        <i class="ki-duotone ki-file-up fs-2x text-primary"><span class="path1"></span><span class="path2"></span></i>
-                                                                        <div class="ms-4">
-                                                                            <h6 class="fs-7 fw-bold text-gray-900 mb-1">Cargar o arrastrar archivos</h6>
-                                                                            <span class="fs-8 text-muted">PDF opcional, puede cargarlo después</span>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        </form>
-                                                    </td>
-                                                    <td>
-                                                        <form class="form" action="#" method="post">
-                                                            <div class="fv-row">
-                                                                <div class="dropzone" id="txtFileFiscalia${contador}">
-                                                                    <div class="dz-message needsclick">
-                                                                        <i class="ki-duotone ki-file-up fs-2x text-primary"><span class="path1"></span><span class="path2"></span></i>
-                                                                        <div class="ms-4">
-                                                                            <h6 class="fs-7 fw-bold text-gray-900 mb-1">Cargar o arrastrar archivos</h6>
-                                                                            <span class="fs-8 text-muted">PDF opcional, puede cargarlo después</span>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        </form>
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </form>
-                                </div>
-                            </div>
-                        </div>
-                        <script>
-                            var myDropzoneFileEscritorio${contador} = new Dropzone("#fileEscrito${contador}", {
-                                url         : "../caso-carga-archivos-casos/validate.php",
-                                method      : "post",
-                                paramName   : "file", 
-                                maxFiles    : 1,
-                                maxFilesize : 100, // MB
-                                addRemoveLinks: true,
-                                acceptedFiles: ".pdf",
-                                dictDefaultMessage: "Eliminar archivos cargados",
-                                dictRemoveFile: "Eliminar",
-                                dictCancelUpload: "Cancelar",
-                                init: function() {
-                                    this.on("error", function(file, errorMessage) {
-                                        this.removeFile(file);
-                                        var response = {
-                                            type : "error",
-                                            message : "Error"
-                                        };
-                                        swal(response);
-                                    });
-                                    this.on("maxfilesexceeded", function(file) {
-                                        this.removeFile(file);
-                                        var response = {
-                                            type : "error",
-                                            message : "El limite de archivos a cargar es de uno"
-                                        };
-                                        swal(response);
-                                    });
-                                    this.on("complete", function(file){
-                                        if(file.status == "error") return false;
+function renderCarga(secciones, registros){
+    // Limpiar dropzones de aperturas anteriores
+    $("#tbBodyArchivos .fila-carga").each(function(){ destruirDropzonesFila($(this)); });
+    $("#tbBodyArchivos").html("");
+    $("#codCaso").val(secciones.id_caso);
 
-                                        if(file.xhr.responseText == "") return false;
-                                        
-                                        var response = JSON.parse(file.xhr.responseText);
-                                        if(response.status == -1){
-                                            this.removeFile(file);
-                                            var response = {
-                                                type    : "error",
-                                                message : response.message
-                                            };
-                                            swal(response);
-                                            return false;
-                                        }
-                                    });
-                                    
-                                },
-                                accept: function(file, done) {
-                                    done();
-                                }
-                            });
+    var nombres = secciones.name_files.split(",");
+    nombres.forEach((nombre, index)=>{
+        var orden = index + 1;
+        var $seccion = seccionCarga(orden, nombre.trim(), false);
 
-                            var myDropzoneFileFiscalia${contador} = new Dropzone("#txtFileFiscalia${contador}", {
-                                url         : "../caso-carga-archivos-casos/validate.php",
-                                method      : "post",
-                                paramName   : "file", 
-                                maxFiles    : 1,
-                                maxFilesize : 100, // MB
-                                addRemoveLinks      : true,
-                                acceptedFiles       : ".pdf",
-                                dictDefaultMessage  : "Eliminar archivos cargados",
-                                dictRemoveFile      : "Eliminar",
-                                dictCancelUpload    : "Cancelar",
-                                init: function() {
-                                    this.on("error", function(file, errorMessage) {
-                                        this.removeFile(file);
-                                        var response = {
-                                            type : "error",
-                                            message : "Error"
-                                        };
-                                        swal(response);
-                                    });
-                                    this.on("maxfilesexceeded", function(file) {
-                                        this.removeFile(file);
-                                        var response = {
-                                            type : "error",
-                                            message : "El limite de archivos a cargar es de uno"
-                                        };
-                                        swal(response);
-                                    });
-                                    this.on("complete", function(file){
-                                        if(file.status == "error") return false;
-
-                                        if(file.xhr.responseText == "") return false;
-                                        
-                                        var response = JSON.parse(file.xhr.responseText);
-                                        if(response.status == -1){
-                                            this.removeFile(file);
-                                            var response = {
-                                                type    : "error",
-                                                message : response.message
-                                            };
-                                            swal(response);
-                                            return false;
-                                        }
-                                    });
-                                },
-                                accept: function(file, done) {
-                                    done();
-                                }
-                            });
-
-                            filesArray.push(myDropzoneFileEscritorio${contador})
-                            filesArray.push(myDropzoneFileFiscalia${contador})
-                        </script>
-                        <hr>
-                    `;
-                    contador++;
-                });
-                $("#tbBodyArchivos").html(divHtml);
-                return false;
-            }
-            response.type = "error";
-            swal(response);
+        // Filas ya registradas de la sección (vienen ordenadas por creación)
+        var filas = registros.filter(reg => (parseInt(reg.orden,10) || 1) === orden);
+        if(filas.length === 0){
+            agregarFila($seccion, null);
+        }else{
+            filas.forEach(reg => agregarFila($seccion, reg));
         }
     });
-    $("#modalArchivo").modal("show");
+
+    // Filas de secciones que ya no corresponden a la materia actual del caso
+    // (p. ej. se cambió de Penal a Civil): se muestran para editarlas o eliminarlas.
+    var huerfanas = registros.filter(reg => (parseInt(reg.orden,10) || 1) > nombres.length);
+    if(huerfanas.length > 0){
+        var $otras = seccionCarga("", "Otras (materia anterior)", true);
+        huerfanas.forEach(reg => agregarFila($otras, reg));
+    }
 }
+
+// Crea una sección del modal de carga y la agrega al final del cuerpo
+function seccionCarga(orden, nombre, huerfana){
+    var $seccion = $(`
+        <div class='row m-0 p-0 seccion-carga ${huerfana ? "seccion-huerfana" : ""}' data-orden='${orden}' data-nombre='${escaparHtml(nombre)}'>
+            <div class='col-md-12'>
+                <h2>${escaparHtml(nombre)}</h2>
+                ${huerfana ? `<p class="text-muted fs-7">Filas registradas en secciones que ya no corresponden a la materia actual del caso. Pueden editarse o eliminarse.</p>` : ""}
+            </div>
+            <div class='col-md-12'>
+                <div class='table-responsive'>
+                    <table class='table table-md table-hover table-bordered'>
+                        <thead>
+                            <tr>
+                                <th>
+                                    <div class="fv-row mb-10">
+                                        <label class="required">PETITORIO</label>
+                                    </div>
+                                </th>
+                                <th>
+                                    <div class="fv-row mb-10">
+                                        <label class="required">FECHA</label>
+                                    </div>
+                                </th>
+                                <th>FISCALÍA</th>
+                                <th>FECHA</th>
+                                <th>RESUMEN</th>
+                                <th>ESCRITOS</th>
+                                <th>FISCALÍA</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody class="tbody-filas"></tbody>
+                    </table>
+                </div>
+                ${huerfana ? "" : `<button type="button" class="btn btn-sm btn-light-primary btn-agregar-fila mb-2">+ Agregar fila</button>`}
+            </div>
+            <hr>
+        </div>`);
+    $("#tbBodyArchivos").append($seccion);
+    return $seccion;
+}
+
+// Agrega una fila (vacía o con un registro existente) al final de la sección
+function agregarFila($seccion, reg){
+    var $tr = $(filaCargaHtml(reg));
+    $seccion.find(".tbody-filas").append($tr);
+    initDropzonesFila($tr);
+    $tr.data("original", JSON.stringify(valoresFila($tr)));
+    return $tr;
+}
+
+function filaCargaHtml(reg){
+    var k       = ++filaSeq;
+    var id      = reg ? reg.id : "";
+    var checked = (reg && parseInt(reg.resuelve,10) === 1) ? "checked" : "";
+    var accion  = reg
+        ? `<button type="button" class="btn btn-icon btn-sm btn-light-danger btn-eliminar-fila" title="Eliminar fila">
+                <i class="ki-duotone ki-trash fs-4"><span class="path1"></span><span class="path2"></span><span class="path3"></span><span class="path4"></span><span class="path5"></span></i>
+           </button>`
+        : `<button type="button" class="btn btn-icon btn-sm btn-light-danger btn-quitar-fila" title="Quitar fila">✕</button>`;
+    return `
+        <tr class="fila-carga" data-id="${id}" data-orden="${reg ? escaparHtml(reg.orden) : ""}">
+            <td><input type="text" class="form-control form-control-sm f-pet" id="txtPet${k}" value="${reg ? escaparHtml(reg.petitorio) : ""}" autocomplete="off" /></td>
+            <td><input type="date" class="form-control form-control-sm f-fecha" id="txtFecha${k}" value="${reg ? escaparHtml(reg.fechaUno) : ""}" autocomplete="off" /></td>
+            <td>
+                <div class="form-check form-check-success form-check-solid form-check-sm">
+                    <input type="checkbox" class="form-check-input f-check" style="cursor:pointer;" id="txtCheck${k}" ${checked} />
+                    <label class="form-check-label" for="txtCheck${k}" style="cursor:pointer;">
+                        Resolvió
+                    </label>
+                </div>
+            </td>
+            <td><input type="date" class="form-control form-control-sm f-fechad" id="txtFechaD${k}" value="${reg ? escaparHtml(reg.fechaDos) : ""}" autocomplete="off" /></td>
+            <td>
+                <textarea class="form-control form-control-sm f-resumen" id="txtResumen${k}" rows="4" cols="50">${reg ? escaparHtml(reg.resumen) : ""}</textarea>
+            </td>
+            <td>
+                ${archivoActualCarga(reg, "escrito", "Escrito")}
+                ${dropzoneCargaHtml(`fileEscrito${k}`, reg && reg.escritoFile)}
+            </td>
+            <td>
+                ${archivoActualCarga(reg, "fiscalia", "Fiscalía")}
+                ${dropzoneCargaHtml(`txtFileFiscalia${k}`, reg && reg.fiscaliaFile)}
+            </td>
+            <td class="text-center align-middle">${accion}</td>
+        </tr>`;
+}
+
+function dropzoneCargaHtml(idDz, tieneArchivo){
+    return `
+        <div class="fv-row">
+            <div class="dropzone" id="${idDz}">
+                <div class="dz-message needsclick">
+                    <i class="ki-duotone ki-file-up fs-2x text-primary"><span class="path1"></span><span class="path2"></span></i>
+                    <div class="ms-4">
+                        <h6 class="fs-7 fw-bold text-gray-900 mb-1">${tieneArchivo ? "Reemplazar archivo" : "Cargar o arrastrar archivos"}</h6>
+                        <span class="fs-8 text-muted">PDF opcional, puede cargarlo después</span>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+}
+
+// PDF ya cargado de una fila guardada: ver / eliminar
+function archivoActualCarga(reg, campo, etiqueta){
+    var fileName = reg ? (campo === "escrito" ? reg.escritoFile : reg.fiscaliaFile) : null;
+    if(!fileName) return "";
+    var titulo = `${nombreTipoRegistro(reg)} - ${etiqueta}`;
+    return `
+        <div class="d-flex flex-wrap gap-2 mb-2 archivo-actual" data-campo="${campo}">
+            <button type="button" class="btn btn-sm btn-light-primary" onclick="openPdfViewer('${escaparHtml(fileName)}','${escaparHtml(titulo)}')">
+                <i class="ki-duotone ki-eye fs-4"><span class="path1"></span><span class="path2"></span><span class="path3"></span></i> Ver actual
+            </button>
+            <button type="button" class="btn btn-sm btn-light-danger" onclick="deleteArchivoFile(${reg.id},'${campo}','${escaparHtml(etiqueta)}')">
+                <i class="ki-duotone ki-trash fs-4"><span class="path1"></span><span class="path2"></span><span class="path3"></span><span class="path4"></span><span class="path5"></span></i> Eliminar archivo
+            </button>
+        </div>`;
+}
+
+function crearDropzoneCarga(elemento){
+    return new Dropzone(elemento, {
+        url         : "../caso-carga-archivos-casos/validate.php",
+        method      : "post",
+        paramName   : "file",
+        maxFiles    : 1,
+        maxFilesize : 100, // MB
+        addRemoveLinks      : true,
+        acceptedFiles       : ".pdf",
+        dictDefaultMessage  : "Eliminar archivos cargados",
+        dictRemoveFile      : "Eliminar",
+        dictCancelUpload    : "Cancelar",
+        init: function() {
+            this.on("error", function(file, errorMessage) {
+                this.removeFile(file);
+                var response = {
+                    type : "error",
+                    message : "Error"
+                };
+                swal(response);
+            });
+            this.on("maxfilesexceeded", function(file) {
+                this.removeFile(file);
+                var response = {
+                    type : "error",
+                    message : "El limite de archivos a cargar es de uno"
+                };
+                swal(response);
+            });
+            this.on("complete", function(file){
+                if(file.status == "error") return false;
+
+                if(file.xhr.responseText == "") return false;
+
+                var response = JSON.parse(file.xhr.responseText);
+                if(response.status == -1){
+                    this.removeFile(file);
+                    var response = {
+                        type    : "error",
+                        message : response.message
+                    };
+                    swal(response);
+                    return false;
+                }
+            });
+        },
+        accept: function(file, done) {
+            done();
+        }
+    });
+}
+
+function initDropzonesFila($tr){
+    var zonas = $tr.find(".dropzone");
+    $tr.data("dzEscrito",  crearDropzoneCarga(zonas[0]));
+    $tr.data("dzFiscalia", crearDropzoneCarga(zonas[1]));
+}
+
+function destruirDropzonesFila($tr){
+    ["dzEscrito","dzFiscalia"].forEach(clave=>{
+        var dz = $tr.data(clave);
+        if(dz){ try { dz.destroy(); } catch(e) {} }
+    });
+}
+
+// Valores editables de una fila (para validar, enviar y detectar cambios)
+function valoresFila($tr){
+    return {
+        petitorio : $tr.find(".f-pet").val().trim(),
+        fechaUno  : $tr.find(".f-fecha").val(),
+        resolvio  : $tr.find(".f-check").is(":checked"),
+        fechaDos  : $tr.find(".f-fechad").val(),
+        resumen   : $tr.find(".f-resumen").val()
+    };
+}
+
+function filaVacia(v){
+    return v.petitorio === "" && v.fechaUno === "" && !v.resolvio && v.fechaDos === "" && v.resumen.trim() === "";
+}
+
+// Quita una fila; si la sección queda sin filas, deja una vacía
+// (la sección "Otras (materia anterior)" se retira al quedar vacía)
+function quitarFila($tr){
+    if($tr.hasClass("fila-sale-anim")) return; // ya se está quitando (doble clic)
+    var $seccion = $tr.closest(".seccion-carga");
+
+    // Desvanecido breve antes de retirar la fila (sin espera si se reducen animaciones)
+    var reducir = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    $tr.addClass("fila-sale-anim");
+    setTimeout(()=>{
+        destruirDropzonesFila($tr);
+        $tr.remove();
+        if($seccion.find(".fila-carga").length === 0){
+            if($seccion.hasClass("seccion-huerfana")){
+                $seccion.remove();
+            }else{
+                var $nueva = agregarFila($seccion, null).addClass("fila-nueva-anim");
+                setTimeout(()=>{ $nueva.removeClass("fila-nueva-anim"); }, 300);
+            }
+        }
+    }, reducir ? 0 : 220);
+}
+
+$(document).off("click.cargaFilas", ".btn-agregar-fila").on("click.cargaFilas", ".btn-agregar-fila", function(){
+    var $tr = agregarFila($(this).closest(".seccion-carga"), null);
+
+    // Aparición progresiva (inversa del desvanecido de salida)
+    $tr.addClass("fila-nueva-anim");
+    setTimeout(()=>{ $tr.removeClass("fila-nueva-anim"); }, 300);
+
+    $tr[0].scrollIntoView({ behavior: "smooth", block: "nearest" });
+    $tr.find(".f-pet")[0].focus({ preventScroll: true });
+});
+
+// Filas nuevas (sin guardar): se quitan del formulario sin confirmación
+$(document).off("click.cargaFilas", ".btn-quitar-fila").on("click.cargaFilas", ".btn-quitar-fila", function(){
+    quitarFila($(this).closest(".fila-carga"));
+});
+
+// Filas guardadas: eliminación lógica del registro, con confirmación
+$(document).off("click.cargaFilas", ".btn-eliminar-fila").on("click.cargaFilas", ".btn-eliminar-fila", function(){
+    var $tr      = $(this).closest(".fila-carga");
+    var id       = $tr.attr("data-id");
+    var $seccion = $tr.closest(".seccion-carga");
+    var fila     = $seccion.find(".fila-carga").index($tr) + 1;
+    Swal.fire({
+        html: `¿Está seguro de eliminar la fila ${fila} de <strong>${escaparHtml($seccion.attr("data-nombre"))}</strong>?`,
+        icon: "question",
+        showCancelButton: true,
+        buttonsStyling: false,
+        confirmButtonText: "Sí, eliminar",
+        cancelButtonText: "Cancelar",
+        customClass: {
+            confirmButton: "btn fw-bold btn-danger",
+            cancelButton: "btn fw-bold btn-active-light-primary"
+        }
+    }).then(result=>{
+        if(!result.value) return false;
+        $.ajax({
+            type:"POST",
+            url:`${$("#urlRequestFiles").val()}`,
+            data:{ "params":id, "method":"eliminarRegistroFile" },
+            beforeSend:()=>{ swalLoading(); },
+            success:(response)=>{
+                response = JSON.parse(response);
+                if(response.status == 1){
+                    swal({ type:"success", message: response.message || "Registro eliminado con éxito." });
+                    quitarFila($tr);
+                    if($.fn.DataTable.isDataTable("#tbCasos")){ $("#tbCasos").DataTable().ajax.reload(null, false); }
+                    return false;
+                }
+                swal({ type:"error", message: response.message || "No se pudo eliminar el registro." });
+            },
+            error:()=>{
+                swal({ type:"error", message:"Ocurrió un error al eliminar el registro." });
+            }
+        });
+    });
+});
 
 $("#btnSaveUpdateCase").on("click",()=>{
     saveUpdate();
@@ -782,75 +894,88 @@ function saveUpdate(){
 }
 
 $("#btnSaveFile").on("click",()=>{
-    var formsFiles  = $('form[name^="formFiles"]');
-    var contar      = 0;
-    var auxiliar    = 0;
     let success     = 0, failed = 0;
-    var promesas    = [];
+    var envios      = [];
 
-    // Pre-validación de campos obligatorios (Petitorio y Fecha) en cada registro.
-    // Los archivos de Escritos y Fiscalía son opcionales: pueden cargarse
-    // luego desde la edición del registro.
+    // Recorre cada fila de cada sección:
+    //  - fila nueva completamente vacía  -> se ignora
+    //  - fila nueva con datos            -> insertar (Petitorio y Fecha obligatorios)
+    //  - fila guardada con cambios/PDF    -> actualizar (Petitorio obligatorio)
+    // Los archivos de Escritos y Fiscalía son opcionales.
     var campoFaltante = null;
-    formsFiles.find(".is-invalid").removeClass("is-invalid");
-    formsFiles.each(function(index){
-        var seccion = $(this).closest(".row").find("h2").first().text().trim();
-        var obligatorios = [
-            { id: `#txtPet${index+1}`,   nombre: "Petitorio" },
-            { id: `#txtFecha${index+1}`, nombre: "Fecha" }
-        ];
-        for(var campo of obligatorios){
-            if($(campo.id).val().trim() === ""){
-                campoFaltante = { id: campo.id, mensaje: `El campo ${campo.nombre} es obligatorio en "${seccion}".` };
-                return false; // detiene el recorrido
+    $("#tbBodyArchivos .is-invalid").removeClass("is-invalid");
+    $("#tbBodyArchivos .seccion-carga").each(function(){
+        var $seccion = $(this);
+        var seccion  = $seccion.attr("data-nombre");
+        var orden    = $seccion.attr("data-orden");
+        $seccion.find(".fila-carga").each(function(index){
+            var $tr             = $(this);
+            var id              = $tr.attr("data-id");
+            var v               = valoresFila($tr);
+            var archivoEscrito  = $tr.data("dzEscrito").getAcceptedFiles()[0];
+            var archivoFiscalia = $tr.data("dzFiscalia").getAcceptedFiles()[0];
+            var sinArchivos     = !archivoEscrito && !archivoFiscalia;
+
+            if(!id && filaVacia(v) && sinArchivos) return;                              // vacía
+            if(id && JSON.stringify(v) === $tr.data("original") && sinArchivos) return;  // sin cambios
+
+            var obligatorios = [ { selector: ".f-pet", valor: v.petitorio, nombre: "Petitorio" } ];
+            if(!id) obligatorios.push({ selector: ".f-fecha", valor: v.fechaUno, nombre: "Fecha" });
+            for(var campo of obligatorios){
+                if(campo.valor === ""){
+                    campoFaltante = { $el: $tr.find(campo.selector), mensaje: `El campo ${campo.nombre} es obligatorio en "${seccion}", fila ${index+1}.` };
+                    return false; // detiene el recorrido
+                }
             }
-        }
+
+            var formData = new FormData();
+            if(id) formData.append("id"     ,id);
+            formData.append("numero"            ,$tr.attr("data-orden") || orden); // una fila guardada conserva su sección
+            formData.append("codCaso"           ,$(`#codCaso`).val());
+            formData.append("petitorio"         ,v.petitorio);
+            formData.append("fechaUno"          ,v.fechaUno);
+            formData.append("resolvio"          ,v.resolvio);
+            formData.append("fechaDos"          ,v.fechaDos);
+            formData.append("resumen"           ,v.resumen);
+            if(archivoEscrito)  formData.append("escritos", archivoEscrito);
+            if(archivoFiscalia) formData.append("fiscalia", archivoFiscalia);
+            formData.append("metodoFormData"    ,id ? "updateDetailFilesCasos" : "insertDetailFilesCasos");
+            envios.push({ $tr: $tr, formData: formData });
+        });
+        if(campoFaltante) return false;
     });
 
     if(campoFaltante){
-        $(campoFaltante.id).addClass("is-invalid").trigger("focus");
+        campoFaltante.$el.addClass("is-invalid").trigger("focus");
         swal({ type: "error", message: campoFaltante.mensaje });
         return false;
     }
 
-    formsFiles.each(function(index){
-        var formData = new FormData();
-        formData.append("numero"            ,(auxiliar+1));
-        formData.append("codCaso"           ,$(`#codCaso`).val());
-        formData.append("petitorio"         ,$(`#txtPet${index+1}`).val());
-        formData.append("fechaUno"          ,$(`#txtFecha${index+1}`).val());
-        formData.append("resolvio"          ,$(`#txtCheck${index+1}`).is(":checked"));
-        formData.append("fechaDos"          ,$(`#txtFechaD${index+1}`).val());
-        formData.append("resumen"           ,$(`#txtResumen${index+1}`).val());
-        var archivoEscrito  = filesArray[contar].getAcceptedFiles()[0];
-        if(archivoEscrito)  formData.append("escritos", archivoEscrito);
-        contar   += 1;
-        var archivoFiscalia = filesArray[contar].getAcceptedFiles()[0];
-        if(archivoFiscalia) formData.append("fiscalia", archivoFiscalia);
-        formData.append("metodoFormData"    ,"insertDetailFilesCasos");
+    if(envios.length === 0){
+        swal({ type: "info", message: "No hay filas nuevas ni cambios para grabar." });
+        return false;
+    }
 
-        promesas.push(
-            upFile(formData)
-            .then(response => {
-                response = JSON.parse(response);
-                if(response.status == 1){
-                    success++;
-                }else{
-                    failed++;
-                }
-            })
-            .catch(error => {
+    var promesas = envios.map(envio =>
+        upFile(envio.formData)
+        .then(response => {
+            response = JSON.parse(response);
+            if(response.status == 1){
+                success++;
+                envio.guardado = true;
+            }else{
                 failed++;
-                console.log(error)
-            })
-        );
-        
-        auxiliar += 1;
-        contar   += 1;
-    });
+            }
+        })
+        .catch(error => {
+            failed++;
+            console.log(error)
+        })
+    );
 
     Promise.all(promesas)
         .then(() => {
+            if($.fn.DataTable.isDataTable("#tbCasos")){ $("#tbCasos").DataTable().ajax.reload(null, false); }
             if(success == promesas.length){
                 let response = {
                     message:"Se guardaron correctamente los datos.",
@@ -858,13 +983,23 @@ $("#btnSaveFile").on("click",()=>{
                 }
                 $("#modalArchivo").modal("hide");
                 swal(response);
-                $("#formFiles").html("");
-                if($.fn.DataTable.isDataTable("#tbCasos")){ $("#tbCasos").DataTable().ajax.reload(null, false); }
                 return false;
             }
 
+            // Guardado parcial: se retiran del formulario las filas nuevas ya
+            // insertadas (evita duplicarlas al reintentar) y se marcan como
+            // originales las actualizadas; quedan solo las que fallaron.
+            envios.forEach(envio => {
+                if(!envio.guardado) return;
+                if(envio.$tr.attr("data-id")){
+                    envio.$tr.data("original", JSON.stringify(valoresFila(envio.$tr)));
+                    ["dzEscrito","dzFiscalia"].forEach(clave => envio.$tr.data(clave).removeAllFiles(true));
+                }else{
+                    quitarFila(envio.$tr);
+                }
+            });
             let response = {
-                message:"Ocurrió un error al crear los datos.",
+                message:`Ocurrió un error al guardar ${failed} de ${promesas.length} filas. Las filas que quedan pendientes pueden grabarse nuevamente.`,
                 type:"error"
             }
             swal(response);
@@ -929,12 +1064,21 @@ function nombreTipoRegistro(registro){
     if(!registro.nameFiles) return `Registro ${registro.orden || ""}`;
     var tipos = registro.nameFiles.split(",");
     var idx = (parseInt(registro.orden,10) || 1) - 1;
-    return (tipos[idx] || `Registro ${registro.orden || ""}`).trim();
+    var nombre = (tipos[idx] || `Registro ${registro.orden || ""}`).trim();
+    // Con varias filas en la misma sección se numeran: "Expediente Judicial #2"
+    return (registro.totalSeccion > 1) ? `${nombre} #${registro.nroFila}` : nombre;
 }
 
-// Valida que un archivo seleccionado sea PDF
-function esPdf(file){
-    return file && (file.type === "application/pdf" || /\.pdf$/i.test(file.name));
+// Numera las filas de cada sección en orden de creación (nroFila / totalSeccion)
+function numerarRegistros(registros){
+    var conteo = {};
+    registros.forEach(reg=>{
+        var orden = parseInt(reg.orden,10) || 1;
+        conteo[orden] = (conteo[orden] || 0) + 1;
+        reg.nroFila = conteo[orden];
+    });
+    registros.forEach(reg=>{ reg.totalSeccion = conteo[parseInt(reg.orden,10) || 1]; });
+    return registros;
 }
 
 // Solicita al backend la lista de registros cargados de un caso
@@ -947,7 +1091,11 @@ function obtenerRegistrosCaso(ide){
             beforeSend:()=>{ loading(); },
             success:(response)=>{
                 hideLoading();
-                try { resolve(JSON.parse(response)); }
+                try {
+                    response = JSON.parse(response);
+                    if(Array.isArray(response.data)) numerarRegistros(response.data);
+                    resolve(response);
+                }
                 catch(e){ reject(e); }
             },
             error:(xhr,status,error)=>{ hideLoading(); reject(error); }
@@ -1054,153 +1202,6 @@ function tarjetaPdf(etiqueta, fileName, titulo){
         </div>`;
 }
 
-// ---------- EDICIÓN / GESTIÓN ----------
-function editFiles(ide){
-    $("#codCasoEdit").val(ide);
-    renderEditar(ide);
-}
-
-function renderEditar(ide){
-    obtenerRegistrosCaso(ide).then(response=>{
-        if(response.status != 0){
-            swal({ type:"error", message: response.message || "No se pudo cargar la información." });
-            return false;
-        }
-        var registros = response.data || [];
-        if(registros.length === 0){
-            $("#bodyEditar").html(`<div class="alert alert-info mb-0">Este caso aún no tiene archivos cargados. Use la opción "Cargar archivos".</div>`);
-            $("#modalEditar").modal("show");
-            return false;
-        }
-
-        var html = "";
-        registros.forEach(reg=>{
-            var tipo = escaparHtml(nombreTipoRegistro(reg));
-            var checked = (parseInt(reg.resuelve,10) === 1) ? "checked" : "";
-            html += `
-                <div class="card card-bordered mb-5" id="cardReg${reg.id}">
-                    <div class="card-header min-h-50px d-flex align-items-center">
-                        <h3 class="card-title fs-5 m-0">${tipo}</h3>
-                    </div>
-                    <div class="card-body">
-                        <form id="frmEdit${reg.id}">
-                            <div class="row g-4 mb-4">
-                                <div class="col-md-4">
-                                    <label class="form-label required">Petitorio</label>
-                                    <input type="text" class="form-control form-control-sm" id="editPet${reg.id}" value="${escaparHtml(reg.petitorio)}" autocomplete="off"/>
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Fecha</label>
-                                    <input type="date" class="form-control form-control-sm" id="editFecha${reg.id}" value="${escaparHtml(reg.fechaUno)}"/>
-                                </div>
-                                <div class="col-md-2">
-                                    <label class="form-label d-block">Resolvió</label>
-                                    <div class="form-check form-check-success form-check-solid mt-2">
-                                        <input type="checkbox" class="form-check-input" id="editCheck${reg.id}" ${checked} style="cursor:pointer;"/>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Fecha (resolvió)</label>
-                                    <input type="date" class="form-control form-control-sm" id="editFechaD${reg.id}" value="${escaparHtml(reg.fechaDos)}"/>
-                                </div>
-                                <div class="col-md-12">
-                                    <label class="form-label">Resumen</label>
-                                    <textarea class="form-control form-control-sm" id="editResumen${reg.id}" rows="3">${escaparHtml(reg.resumen)}</textarea>
-                                </div>
-                            </div>
-                            <div class="row g-4">
-                                ${bloqueArchivoEdit(reg.id, "Escrito", "escrito", reg.escritoFile, tipo + " - Escrito")}
-                                ${bloqueArchivoEdit(reg.id, "Fiscalía", "fiscalia", reg.fiscaliaFile, tipo + " - Fiscalía")}
-                            </div>
-                            <div class="text-end mt-4">
-                                <button type="button" class="btn btn-sm btn-warning" onclick="saveUpdateFile(${reg.id}, ${reg.orden})">
-                                    <i class="ki-duotone ki-check fs-4"></i> Guardar cambios
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>`;
-        });
-        $("#bodyEditar").html(html);
-        $("#modalEditar").modal("show");
-    }).catch(()=>{
-        swal({ type:"error", message:"Ocurrió un error al cargar los archivos." });
-    });
-}
-
-// Bloque para ver/reemplazar/eliminar un PDF dentro del formulario de edición
-function bloqueArchivoEdit(id, etiqueta, campo, fileName, titulo){
-    var actual = fileName
-        ? `<div class="d-flex flex-wrap gap-2">
-                <button type="button" class="btn btn-sm btn-light-primary" onclick="openPdfViewer('${escaparHtml(fileName)}','${escaparHtml(titulo)}')">
-                    <i class="ki-duotone ki-eye fs-4"><span class="path1"></span><span class="path2"></span><span class="path3"></span></i> Ver actual
-                </button>
-                <button type="button" class="btn btn-sm btn-light-danger" onclick="deleteArchivoFile(${id},'${campo}','${escaparHtml(etiqueta)}')">
-                    <i class="ki-duotone ki-trash fs-4"><span class="path1"></span><span class="path2"></span><span class="path3"></span><span class="path4"></span><span class="path5"></span></i> Eliminar archivo
-                </button>
-           </div>`
-        : `<span class="badge badge-light-warning">Sin archivo</span>`;
-    return `
-        <div class="col-md-6">
-            <div class="border rounded p-4 h-100">
-                <label class="fw-bold d-block mb-2">${etiqueta}</label>
-                <div class="mb-3">${actual}</div>
-                <label class="form-label fs-7 text-muted">${fileName ? "Reemplazar archivo" : "Cargar archivo"} (PDF, opcional)</label>
-                <input type="file" accept="application/pdf,.pdf" class="form-control form-control-sm" id="editFile_${campo}_${id}"/>
-            </div>
-        </div>`;
-}
-
-// Guarda los cambios de un registro (datos y/o archivos reemplazados)
-function saveUpdateFile(id, orden){
-    var petitorio = $(`#editPet${id}`).val().trim();
-    if(petitorio === ""){
-        swal({ type:"error", message:"El petitorio es obligatorio." });
-        return false;
-    }
-
-    var fileEscrito  = $(`#editFile_escrito_${id}`)[0].files[0];
-    var fileFiscalia = $(`#editFile_fiscalia_${id}`)[0].files[0];
-
-    if(fileEscrito && !esPdf(fileEscrito)){
-        swal({ type:"error", message:"El archivo de Escrito debe ser un PDF." });
-        return false;
-    }
-    if(fileFiscalia && !esPdf(fileFiscalia)){
-        swal({ type:"error", message:"El archivo de Fiscalía debe ser un PDF." });
-        return false;
-    }
-
-    var formData = new FormData();
-    formData.append("id"             , id);
-    formData.append("numero"         , orden);
-    formData.append("codCaso"        , $("#codCasoEdit").val());
-    formData.append("petitorio"      , petitorio);
-    formData.append("fechaUno"       , $(`#editFecha${id}`).val());
-    formData.append("resolvio"       , $(`#editCheck${id}`).is(":checked"));
-    formData.append("fechaDos"       , $(`#editFechaD${id}`).val());
-    formData.append("resumen"        , $(`#editResumen${id}`).val());
-    formData.append("metodoFormData" , "updateDetailFilesCasos");
-
-    if(fileEscrito)  formData.append("escritos", fileEscrito);
-    if(fileFiscalia) formData.append("fiscalia", fileFiscalia);
-
-    upFile(formData)
-        .then(response=>{
-            response = JSON.parse(response);
-            if(response.status == 1){
-                swal({ type:"success", message: response.message || "Registro actualizado correctamente." });
-                renderEditar($("#codCasoEdit").val());
-                if($.fn.DataTable.isDataTable("#tbCasos")){ $("#tbCasos").DataTable().ajax.reload(null, false); }
-                return false;
-            }
-            swal({ type:"error", message: response.message || "No se pudo actualizar el registro." });
-        })
-        .catch(()=>{
-            swal({ type:"error", message:"Ocurrió un error al actualizar el registro." });
-        });
-}
-
 // Elimina únicamente un archivo PDF (escrito o fiscalía) del registro,
 // conservando el resto de la información del registro.
 function deleteArchivoFile(id, tipo, etiqueta){
@@ -1226,7 +1227,8 @@ function deleteArchivoFile(id, tipo, etiqueta){
                 response = JSON.parse(response);
                 if(response.status == 1){
                     swal({ type:"success", message: response.message || "Archivo eliminado con éxito." });
-                    renderEditar($("#codCasoEdit").val());
+                    // Solo se actualiza la celda, para no perder filas sin guardar
+                    $(`#tbBodyArchivos .fila-carga[data-id="${id}"] .archivo-actual[data-campo="${tipo}"]`).remove();
                     if($.fn.DataTable.isDataTable("#tbCasos")){ $("#tbCasos").DataTable().ajax.reload(null, false); }
                     return false;
                 }

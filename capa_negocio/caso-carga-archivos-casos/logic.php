@@ -54,7 +54,7 @@
                             $guardados = [];
 
                             if(esArchivoValido($params['escritos'])){
-                                $newFileName = generarNombreArchivo($params['escritos']['name'],("escrito".$params["numero"]));
+                                $newFileName = generarNombreArchivo($params['escritos']['name'],("escrito".$params["numero"]),$params["codcaso"]. "_");
                                 $upload_file = $upload_dir .$params["codcaso"]. "_" .$newFileName;
                                 if (!move_uploaded_file($params['escritos']['tmp_name'], $upload_file)) {
                                     die(json_encode([
@@ -68,7 +68,7 @@
                             }
 
                             if(esArchivoValido($params['fiscalia'])){
-                                $newFileName = generarNombreArchivo($params['fiscalia']['name'],("fiscalia".$params["numero"]));
+                                $newFileName = generarNombreArchivo($params['fiscalia']['name'],("fiscalia".$params["numero"]),$params["codcaso"]. "_");
                                 $upload_file = $upload_dir .$params["codcaso"]. "_" .$newFileName;
                                 if (!move_uploaded_file($params['fiscalia']['tmp_name'], $upload_file)) {
                                     // No dejar huérfano el Escrito ya movido
@@ -122,7 +122,7 @@
                             $params["fiscaliaFileName"] = "";
 
                             if(esArchivoValido($params['escritos'])){
-                                $newFileName = generarNombreArchivo($params['escritos']['name'],("escrito".$params["numero"]));
+                                $newFileName = generarNombreArchivo($params['escritos']['name'],("escrito".$params["numero"]),$params["codcaso"]. "_");
                                 $upload_file = $upload_dir .$params["codcaso"]. "_" .$newFileName;
                                 if (move_uploaded_file($params['escritos']['tmp_name'], $upload_file)) {
                                     $params["escritoFileName"] = $params["codcaso"]. "_" .$newFileName;
@@ -130,7 +130,7 @@
                             }
 
                             if(esArchivoValido($params['fiscalia'])){
-                                $newFileName = generarNombreArchivo($params['fiscalia']['name'],("fiscalia".$params["numero"]));
+                                $newFileName = generarNombreArchivo($params['fiscalia']['name'],("fiscalia".$params["numero"]),$params["codcaso"]. "_");
                                 $upload_file = $upload_dir .$params["codcaso"]. "_" .$newFileName;
                                 if (move_uploaded_file($params['fiscalia']['tmp_name'], $upload_file)) {
                                     $params["fiscaliaFileName"] = $params["codcaso"]. "_" .$newFileName;
@@ -164,11 +164,16 @@
             && is_uploaded_file($file['tmp_name']);
     }
 
-    // Función para generar un nombre de archivo único
-    function generarNombreArchivo($originalName,$type) {
-        $timestamp = date('Ymd_His');
-        $uniqueId = uniqid();
+    // Función para generar un nombre de archivo único.
+    // Una sección puede tener varias filas que se suben en paralelo en el mismo
+    // segundo: se agrega un sufijo aleatorio y se verifica que no exista en uploads/.
+    function generarNombreArchivo($originalName,$type,$prefijo = "") {
         $extension = pathinfo($originalName, PATHINFO_EXTENSION);
-        return $type. "_" .$timestamp . '_' . $uniqueId . '.' . $extension;
+        do {
+            $timestamp = date('Ymd_His');
+            $uniqueId = uniqid() . bin2hex(random_bytes(4));
+            $nombre = $type. "_" .$timestamp . '_' . $uniqueId . '.' . $extension;
+        } while (is_file('../../uploads/' . $prefijo . $nombre));
+        return $nombre;
     }
 ?>
